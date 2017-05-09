@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -52,27 +51,25 @@ func handleTest(msg *consumer.Message) {
 	fmt.Printf("result:\n%+v", result)
 	if err != nil {
 		log.Println("ReadJSON error: ", err)
-		msg.Fail()
+		msg.Success()
 		return
 	}
 
 	var confidence float64
-	confidence, err = execVerifyByLocal(result.Files)
+	confidence, err = locFacePlusPlus(result.Files)
 
 	if confidence < 0.7 {
 		if err != nil {
-			log.Println("execVerifyByLocal error: ", err)
+			util.AddLog(fmt.Errorf("First error: ", err))
 		}
 
 		//confidence, err = CurlByFacePlusPlus(result.Files)
 		//confidence, err = FacePlusPlus(result.Files)
-		//confidence, err = LinkFace(result.Files)
-		confidence, err = locFacePlusPlus(result.Files)
-		fmt.Println(err)
+		confidence, err = LinkFace(result.Files)
+		//confidence, err = locFacePlusPlus(result.Files)
 		if err != nil {
-			log.Println("execVerifyByFacePlusPlus error: ", err)
+			util.AddLog(fmt.Errorf("Second error: ", err))
 			publish <- controllers.NewCompareEvent(result.User, "0")
-			fmt.Println("success\n\n")
 			msg.Success()
 			return
 		}
@@ -82,17 +79,20 @@ func handleTest(msg *consumer.Message) {
 	msg.Success()
 	//confidence = math.Trunc(confidence*1e2+0.5) * 1e-2
 	con := strconv.FormatFloat(confidence, 'f', -1, 64)
-	uid := models2.Record(result.ID, result.User, con)
-	models2.InsertIntoCompareMsg(result.User, con, uid, result.CompareMsg)
-	models2.FileMv(result.User, result.ID, uid)
-
 	publish <- controllers.NewCompareEvent(result.User, strconv.FormatFloat(confidence, 'f', -1, 32))
+	uid := models2.Record(result.ID, result.User, con)
+	fmt.Println(1)
+	models2.InsertIntoCompareMsg(result.User, con, uid, result.CompareMsg)
+	fmt.Println(2)
+	models2.FileMv(result.User, result.ID, uid)
+	fmt.Println(3)
+
+	//publish <- controllers.NewCompareEvent(result.User, strconv.FormatFloat(confidence, 'f', -1, 32))
 }
 
 func runConsumer(maxInFlight int, nsqdAddr string) {
 	count := 10
 	for {
-		fmt.Println("count", count)
 		consumer.Register("verify", "consume", maxInFlight, handleTest)
 		err := consumer.Connect(nsqdAddr)
 		if err == nil {
@@ -104,7 +104,6 @@ func runConsumer(maxInFlight int, nsqdAddr string) {
 			log.Println(err)
 			os.Exit(1)
 		}
-		fmt.Println(count)
 	}
 
 	consumer.Start(true)
@@ -132,7 +131,7 @@ func execVerifyByLocal(files []string) (float64, error) {
 		reg := regexp.MustCompile(pattern)
 		result := reg.FindStringSubmatch(string(outs))
 		if len(result) == 0 {
-			return float64(0), errors.New("invaild outs of verify.exe")
+			return float64(0), fmt.Errorf("invaild outs of verify.exe")
 		}
 
 		confidence, err := strconv.ParseFloat(result[1], 32)
@@ -143,7 +142,7 @@ func execVerifyByLocal(files []string) (float64, error) {
 		return confidence, nil
 	}
 
-	return float64(0), errors.New("failed to exec verify.exe")
+	return float64(0), fmt.Errorf("failed to exec verify.exe")
 }
 
 func CurlByFacePlusPlus(files []string) (float64, error) {
@@ -200,7 +199,7 @@ func FacePlusPlus(files []string) (float64, error) {
 
 	if _, ok := mp["confidence"]; !ok {
 		s, _ := strconv.ParseFloat("0", 64)
-		return s, errors.New("confidence to low")
+		return s, fmt.Errorf("confidence to low")
 	}
 
 	return mp["confidence"].(float64), nil
@@ -225,7 +224,7 @@ func LinkFace(files []string) (float64, error) {
 
 	if _, ok := mp["confidence"]; !ok {
 		s, _ := strconv.ParseFloat("0", 64)
-		return s, errors.New("confidence to low")
+		return s, fmt.Errorf("confidence to low")
 	}
 
 	fmt.Println(mp["confidence"].(float64))
